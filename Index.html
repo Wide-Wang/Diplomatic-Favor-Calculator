@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Favor Ledger</title>
+<style>
+  :root{
+    --ink:#12181f; --ink-2:#1a222c; --line:#2c3742;
+    --paper:#e9e3d3; --paper-dim:#a99f88;
+    --amber:#d8a13b; --amber-dim:#8a6a2e;
+    --win:#5f9a72; --lose:#b25b4c;
+  }
+  *{box-sizing:border-box;}
+  body{background:var(--ink);color:var(--paper);font-family:'Courier New',ui-monospace,monospace;margin:0;padding:28px 18px 60px;}
+  .wrap{max-width:820px;margin:0 auto;}
+  h1{font-size:1.5rem;letter-spacing:.08em;text-transform:uppercase;border-bottom:1px solid var(--line);padding-bottom:14px;margin-bottom:4px;color:var(--amber);}
+  .sub{color:var(--paper-dim);font-size:.8rem;margin-bottom:20px;letter-spacing:.03em;}
+  .sizepick{margin-bottom:20px;}
+  .sizepick label{display:block;font-size:.72rem;color:var(--paper-dim);margin-bottom:6px;text-transform:uppercase;letter-spacing:.1em;}
+  .sizepick select{width:100%;background:var(--ink-2);border:1px solid var(--line);color:var(--paper);padding:10px;font-family:inherit;font-size:.95rem;}
+  .teams{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:22px;}
+  .team{border:1px solid var(--line);background:var(--ink-2);padding:16px;}
+  .team h2{font-size:.72rem;text-transform:uppercase;letter-spacing:.12em;margin:0 0 12px;color:var(--paper-dim);}
+  .field{margin-bottom:10px;}
+  .field label{display:block;font-size:.72rem;color:var(--paper-dim);margin-bottom:4px;}
+  .field input{width:100%;background:var(--ink);border:1px solid var(--line);color:var(--paper);padding:8px 10px;font-family:inherit;font-size:.95rem;}
+  .field input:focus{outline:none;border-color:var(--amber-dim);}
+  button{width:100%;background:var(--amber);color:var(--ink);border:none;padding:13px;font-family:inherit;font-size:.85rem;letter-spacing:.1em;text-transform:uppercase;cursor:pointer;margin-bottom:24px;}
+  button:hover{background:#e6b455;}
+  .verdict{border:1px solid var(--line);padding:14px 18px;margin-bottom:14px;}
+  .verdict.win{border-color:var(--win);}
+  .verdict.lose{border-color:var(--lose);}
+  .tag{font-size:.7rem;letter-spacing:.14em;text-transform:uppercase;display:inline-block;padding:3px 8px;}
+  .verdict.win .tag{background:var(--win);color:var(--ink);}
+  .verdict.lose .tag{background:var(--lose);color:var(--ink);}
+  table{width:100%;border-collapse:collapse;margin-bottom:18px;font-size:.85rem;}
+  th,td{border:1px solid var(--line);padding:7px 9px;text-align:right;}
+  th{color:var(--paper-dim);font-weight:normal;text-transform:uppercase;font-size:.65rem;letter-spacing:.06em;}
+  td:first-child,th:first-child{text-align:left;}
+  .note{border-left:2px solid var(--amber-dim);padding:10px 14px;color:var(--paper-dim);font-size:.8rem;line-height:1.6;margin-bottom:10px;}
+  .tradebox{font-size:.9rem;margin:0 0 14px;}
+  .tradebox div{margin-bottom:4px;}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Favor Ledger</h1>
+  <div class="sub">Check whether your team can force a clean sweep — or where you have to bluff</div>
+
+  <div class="sizepick">
+    <label>Lobby size</label>
+    <select id="teamSize" onchange="renderPlayerInputs()">
+      <option value="2">2v2</option>
+      <option value="3">3v3</option>
+      <option value="4">4v4</option>
+      <option value="5">5v5</option>
+      <option value="6">6v6</option>
+    </select>
+  </div>
+
+  <div class="teams">
+    <div class="team"><h2>Your Team</h2><div id="usInputs"></div></div>
+    <div class="team"><h2>Opponent Team</h2><div id="oppInputs"></div></div>
+  </div>
+
+  <button onclick="calc()">Run the numbers</button>
+  <div id="output"></div>
+  <div class="note">cost(n) = 4(n-1) for the n-th vote on any one player's meter. Votes always split as evenly as possible across your whole team. First vote per player is free. Trade only moves favor between your own teammates. Trade plan is jointly optimized across all 3 options at once to minimize total favor moved.</div>
+</div>
+
+<script>
+const DEFAULTS_US = [120,90,70,60,50,45];
+const DEFAULTS_OPP = [100,80,65,55,48,42];
+
+function renderPlayerInputs(){
+  const N = +document.getElementById('teamSize').value;
+  const usDiv = document.getElementById('usInputs');
+  const oppDiv = document.getElementById('oppInputs');
+  usDiv.innerHTML=''; oppDiv.innerHTML='';
+  for(let i=0;i<N;i++){
+    usDiv.innerHTML += `<div class="field"><label>Player ${i+1} favor</label><input type="number" id="u${i}" value="${DEFAULTS_US[i]||50}" min="0"></div>`;
+    oppDiv.innerHTML += `<div class="field"><label>Player ${i+1} favor</label><input type="number" id="o${i}" value="${DEFAULTS_OPP[i]||40}" min="0"></div>`;
+  }
+}
+renderPlayerInputs();
+
+function cost(n){ return 2*n*(n-1); }
+
+function minCostForVotes(v, N){
+  const base = Math.floor(v/N), extra = base+1, r = v%N;
+  return {cost: r*cost(extra)+(N-r)*cost(base), base, extra, r};
+}
+
+function maxVotesForBudget(budget, N){
+  const counts = new Array(N).fill(0);
+  let spent = 0;
+  while(true){
+    let bestIdx=0, bestCost=Infinity;
+    for(let i=0;i<N;i++){ const c=4*counts[i]; if(c<bestCost){ bestCost=c; bestIdx=i; } }
+    if(spent+bestCost>budget) break;
+    spent+=bestCost; counts[bestIdx]++;
+  }
+  return {total:counts.reduce((a,b)=>a+b,0), spent, counts};
+}
+
+function combinations(n, r){
+  const result = [];
+  function rec(start, combo){
+    if(combo.length===r){ result.push(combo.slice()); return; }
+    for(let i=start;i<n;i++){ combo.push(i); rec(i+1, combo); combo.pop(); }
+  }
+  rec(0, []);
+  return result;
+}
+
+// Jointly optimal across ALL supplied options at once (may have different
+// vote targets per option) — exhaustively searches every combination of
+// "who takes the bigger share on which option" to find the assignment that
+// minimizes total favor that must be traded between teammates.
+function buildPlanMulti(needPerList, favorArr){
+  const N = favorArr.length;
+  const numOptions = needPerList.length;
+  const combosPerOption = needPerList.map(np => combinations(N, np.r));
+  let bestTransfer = Infinity, bestChoice = null;
+
+  function recurse(optIdx, spend, chosen){
+    if(optIdx===numOptions){
+      let transfer=0;
+      for(let p=0;p<N;p++) transfer += Math.max(0, spend[p]-favorArr[p]);
+      if(transfer<bestTransfer){ bestTransfer=transfer; bestChoice=chosen.slice(); }
+      return;
+    }
+    const np = needPerList[optIdx];
+    for(const combo of combosPerOption[optIdx]){
+      const newSpend = spend.slice();
+      for(let p=0;p<N;p++) newSpend[p] += combo.includes(p) ? cost(np.extra) : cost(np.base);
+      chosen.push(combo);
+      recurse(optIdx+1, newSpend, chosen);
+      chosen.pop();
+    }
+  }
+  recurse(0, new Array(N).fill(0), []);
+
+  const rows = [];
+  const spendPerPlayer = new Array(N).fill(0);
+  for(let i=0;i<numOptions;i++){
+    const np = needPerList[i];
+    const combo = bestChoice[i];
+    for(let p=0;p<N;p++){
+      const isExtra = combo.includes(p);
+      const votes = isExtra ? np.extra : np.base;
+      const c = isExtra ? cost(np.extra) : cost(np.base);
+      rows.push({option:i+1, player:p, votes, cost:c});
+      spendPerPlayer[p]+=c;
+    }
+  }
+  return {rows, spendPerPlayer};
+}
+
+// Determines the max total votes purchasable on the leftover options with
+// the leftover budget (this part is provably optimal via greedy exchange —
+// marginal costs are non-decreasing, so always buying the globally cheapest
+// next vote maximizes total votes for any given budget).
+function greedyExtra(remainder, weakCount, N){
+  const cells = [];
+  for(let o=0;o<weakCount;o++) for(let p=0;p<N;p++) cells.push({option:o, player:p, n:1});
+  let spent = 0;
+  while(true){
+    let bestIdx=-1, bestCost=Infinity;
+    for(let i=0;i<cells.length;i++){
+      const c = 4*cells[i].n;
+      if(c<bestCost){ bestCost=c; bestIdx=i; }
+    }
+    if(spent+bestCost>remainder) break;
+    spent+=bestCost;
+    cells[bestIdx].n++;
+  }
+  return {cells, spent};
+}
+
+function computeTransfers(spendArr, favorArr){
+  const net = favorArr.map((f,i)=>({i, amt:f-spendArr[i]}));
+  const surplus = net.filter(x=>x.amt>0.001).sort((a,b)=>b.amt-a.amt).map(x=>({...x}));
+  const deficit = net.filter(x=>x.amt<-0.001).map(x=>({i:x.i, amt:-x.amt})).sort((a,b)=>b.amt-a.amt);
+  const transfers=[];
+  let si=0, di=0;
+  while(si<surplus.length && di<deficit.length){
+    const amt = Math.min(surplus[si].amt, deficit[di].amt);
+    if(amt>0.001) transfers.push({from:surplus[si].i, to:deficit[di].i, amt:Math.round(amt*100)/100});
+    surplus[si].amt-=amt; deficit[di].amt-=amt;
+    if(surplus[si].amt<=0.001) si++;
+    if(deficit[di] && deficit[di].amt<=0.001) di++;
+  }
+  return transfers;
+}
+
+function renderTransfers(transfers){
+  if(transfers.length===0) return `<div class="tradebox"><b>No trade needed</b></div>`;
+  return `<div class="tradebox">${transfers.map(t=>`<div><b>Send ${t.amt} favor: P${t.from+1} → P${t.to+1}</b></div>`).join('')}</div>`;
+}
+
+function votesTable(rows, N, optionLabelFn){
+  let html = '<table><tr><th>Option</th>' + Array.from({length:N},(_,p)=>`<th>P${p+1} votes</th><th>P${p+1} cost</th>`).join('') + '</tr>';
+  const byOption = {};
+  for(const r of rows){ byOption[r.option]=byOption[r.option]||{}; byOption[r.option][r.player]={votes:r.votes,cost:r.cost}; }
+  for(const opt in byOption){
+    html += `<tr><td>${optionLabelFn(opt)}</td>` + Array.from({length:N},(_,p)=>{
+      const cell = byOption[opt][p] || {votes:0,cost:0};
+      return `<td>${cell.votes}</td><td>${cell.cost}</td>`;
+    }).join('') + '</tr>';
+  }
+  html += '</table>';
+  return html;
+}
+
+function calc(){
+  const N = +document.getElementById('teamSize').value;
+  const f = []; const o = [];
+  for(let i=0;i<N;i++){
+    f.push(Math.max(0, +document.getElementById('u'+i).value || 0));
+    o.push(Math.max(0, +document.getElementById('o'+i).value || 0));
+  }
+  const usTotal = f.reduce((a,b)=>a+b,0);
+  const oppTotal = o.reduce((a,b)=>a+b,0);
+
+  const oppMax = maxVotesForBudget(oppTotal, N);
+  const needVotes = oppMax.total+1;
+  const perOption = minCostForVotes(needVotes, N);
+  const totalNeeded = perOption.cost*3;
+
+  const out = document.getElementById('output');
+  let html = '';
+
+  if(usTotal >= totalNeeded){
+    const plan = buildPlanMulti(Array(3).fill(perOption), f);
+    const transfers = computeTransfers(plan.spendPerPlayer, f);
+    const leftoverWin = usTotal - totalNeeded;
+    html += `<div class="verdict win"><span class="tag">Sweep all 3</span></div>`;
+    html += renderTransfers(transfers);
+    html += votesTable(plan.rows, N, o=>`Option ${o}`);
+    if(leftoverWin>0) html += `<p style="font-size:.8rem;color:var(--paper-dim);">${leftoverWin} favor unused — you already win regardless, so it's optional to push further.</p>`;
+  } else {
+    const guaranteedOptions = Math.min(3, Math.floor(usTotal / perOption.cost));
+    const spentOnGuaranteed = guaranteedOptions*perOption.cost;
+    const remainder = usTotal - spentOnGuaranteed;
+    const weakCount = 3 - guaranteedOptions;
+
+    // Step 1: determine each weak option's target vote count (exact for total votes achieved)
+    const extra = greedyExtra(remainder, weakCount, N);
+    const weakTotals = new Array(weakCount).fill(0);
+    for(const c of extra.cells) weakTotals[c.option]+=c.n;
+    const weakNeedPer = weakTotals.map(v=>minCostForVotes(v,N));
+    const unspendable = remainder - extra.spent;
+
+    // Step 2: jointly optimize trade across secured AND weak options together
+    const needPerList = Array(guaranteedOptions).fill(perOption).concat(weakNeedPer);
+    const plan = buildPlanMulti(needPerList, f);
+    const transfers = computeTransfers(plan.spendPerPlayer, f);
+
+    const tag = guaranteedOptions===0 ? `Can't secure any — max out all 3` : `Secure ${guaranteedOptions}, max out ${weakCount}`;
+    html += `<div class="verdict lose"><span class="tag">${tag}</span></div>`;
+    html += renderTransfers(transfers);
+    html += votesTable(plan.rows, N, o=>`Option ${o}`);
+    if(unspendable>0) html += `<p style="font-size:.8rem;color:var(--paper-dim);">${unspendable} favor too small to buy another vote — unavoidable leftover.</p>`;
+  }
+
+  html += `<table><tr><th></th>${Array.from({length:N},(_,p)=>`<th>P${p+1}</th>`).join('')}<th>Max if all-in</th></tr>
+    <tr><td>You</td>${f.map(x=>`<td>${x}</td>`).join('')}<td>${maxVotesForBudget(usTotal,N).total}</td></tr>
+    <tr><td>Opp</td>${o.map(x=>`<td>${x}</td>`).join('')}<td>${oppMax.total}</td></tr></table>`;
+
+  out.innerHTML = html;
+}
+calc();
+</script>
+</body>
+</html>
